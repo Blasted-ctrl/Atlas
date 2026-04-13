@@ -2,7 +2,7 @@
 
 A full-stack multi-cloud cost optimization platform. Atlas connects to your AWS, GCP, and Azure environments, maps spend to individual services and resources, and uses AI to surface the exact optimizations worth acting on.
 
-[![CI](https://github.com/YOUR_USERNAME/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/atlas/actions/workflows/ci.yml)
+[![CI](https://github.com/Blasted-ctrl/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Blasted-ctrl/atlas/actions/workflows/ci.yml)
 
 ---
 
