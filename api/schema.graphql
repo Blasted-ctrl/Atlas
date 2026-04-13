@@ -1,0 +1,652 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Atlas Cloud Cost Optimizer — GraphQL Schema
+# ─────────────────────────────────────────────────────────────────────────────
+# Conventions:
+#   - All timestamps are ISO 8601 strings in UTC
+#   - Monetary values are Float in USD
+#   - IDs are opaque String values prefixed by domain (e.g. "res_", "rec_")
+#   - Nullable fields that may be absent are typed `Type` (not `Type!`)
+#   - Pagination follows the Relay cursor connection spec
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scalars
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""ISO 8601 datetime string in UTC (e.g. "2024-03-01T12:00:00Z")."""
+scalar DateTime
+
+"""ISO 8601 date string (e.g. "2024-03-01")."""
+scalar Date
+
+"""Arbitrary JSON object (used for provider-specific specs and tag maps)."""
+scalar JSON
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Enumerations
+# ─────────────────────────────────────────────────────────────────────────────
+
+enum CloudProvider {
+  AWS
+  GCP
+  AZURE
+}
+
+enum ResourceType {
+  EC2_INSTANCE
+  RDS_INSTANCE
+  RDS_CLUSTER
+  ELASTICACHE_CLUSTER
+  LAMBDA_FUNCTION
+  S3_BUCKET
+  EKS_NODE_GROUP
+  ELB
+  EBS_VOLUME
+  CLOUDFRONT_DISTRIBUTION
+  NAT_GATEWAY
+}
+
+enum ResourceStatus {
+  RUNNING
+  STOPPED
+  TERMINATED
+  PENDING
+  UNKNOWN
+}
+
+enum MetricName {
+  CPU_UTILIZATION
+  MEMORY_UTILIZATION
+  NETWORK_IN_BYTES
+  NETWORK_OUT_BYTES
+  DISK_READ_OPS
+  DISK_WRITE_OPS
+  CONNECTIONS
+  REQUEST_COUNT
+  ERROR_RATE
+}
+
+enum Granularity {
+  ONE_MINUTE
+  FIVE_MINUTES
+  FIFTEEN_MINUTES
+  ONE_HOUR
+  SIX_HOURS
+  ONE_DAY
+}
+
+enum RecommendationType {
+  RESIZE_DOWN
+  RESIZE_UP
+  TERMINATE
+  SCHEDULE
+  RESERVED_INSTANCE
+  SAVINGS_PLAN
+  GRAVITON_MIGRATION
+}
+
+enum RecommendationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  APPLIED
+  DISMISSED
+  EXPIRED
+}
+
+enum RecommendationAction {
+  ACCEPT
+  REJECT
+  DISMISS
+}
+
+enum ForecastGranularity {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum OptimizationJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ResourceSortField {
+  MONTHLY_COST
+  CREATED_AT
+  NAME
+}
+
+enum RecommendationSortField {
+  SAVINGS
+  CONFIDENCE
+  CREATED_AT
+}
+
+enum SortDirection {
+  ASC
+  DESC
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Relay Connection / Pagination
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Metadata about a paginated connection."""
+type PageInfo {
+  """Whether there is a next page."""
+  hasNextPage: Boolean!
+  """Whether there is a previous page."""
+  hasPreviousPage: Boolean!
+  """Opaque cursor pointing to the first edge in this page."""
+  startCursor: String
+  """Opaque cursor pointing to the last edge in this page."""
+  endCursor: String
+  """Total item count matching the query (may be approximate for large sets)."""
+  totalCount: Int!
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Resource Types
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Network configuration for a cloud resource."""
+type ResourceNetwork {
+  vpcId: String
+  subnetId: String
+  securityGroups: [String!]!
+  publicIp: String
+  privateIp: String
+}
+
+"""A discovered cloud resource (EC2, RDS, Lambda, etc.)."""
+type Resource {
+  """Atlas-internal opaque resource identifier."""
+  id: ID!
+  """Cloud-provider native resource identifier (e.g. i-0abc123def456789a)."""
+  externalId: String!
+  """Human-readable name derived from tags or provider metadata."""
+  name: String
+  type: ResourceType!
+  provider: CloudProvider!
+  """Cloud account / project / subscription identifier."""
+  accountId: String!
+  region: String!
+  availabilityZone: String
+  status: ResourceStatus!
+  """Instance / SKU type; null for non-compute resources."""
+  instanceType: String
+  """Key-value tags attached to the resource."""
+  tags: JSON!
+  """Current estimated monthly cost in USD."""
+  monthlyCostUsd: Float!
+  """When Atlas first discovered this resource."""
+  createdAt: DateTime!
+  """Last time Atlas synced this resource's state from the cloud provider."""
+  lastSeenAt: DateTime!
+  """Provider-specific hardware and configuration details."""
+  specs: JSON
+  network: ResourceNetwork
+
+  # Nested relations
+  """Optimization recommendations for this resource."""
+  recommendations(
+    status: RecommendationStatus
+    type: RecommendationType
+    first: Int = 10
+    after: String
+  ): RecommendationConnection!
+
+  """Usage time-series metrics for this resource."""
+  usageMetrics(
+    metric: MetricName
+    startTime: DateTime
+    endTime: DateTime
+    granularity: Granularity = ONE_HOUR
+  ): [UsageMetric!]!
+
+  """Most recent forecasts scoped to this resource."""
+  forecasts(
+    granularity: ForecastGranularity
+    first: Int = 5
+    after: String
+  ): ForecastConnection!
+}
+
+type ResourceEdge {
+  cursor: String!
+  node: Resource!
+}
+
+type ResourceConnection {
+  edges: [ResourceEdge!]!
+  pageInfo: PageInfo!
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Usage / Metrics
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""A single time-series data point."""
+type MetricDatapoint {
+  """ISO 8601 timestamp of the bucket start."""
+  timestamp: DateTime!
+  """Metric value in the associated unit."""
+  value: Float!
+  """Measurement unit (e.g. Percent, Bytes, Count)."""
+  unit: String!
+}
+
+"""Statistical summary over a set of datapoints."""
+type MetricStatistics {
+  min: Float!
+  max: Float!
+  avg: Float!
+  p50: Float!
+  p90: Float!
+  p99: Float!
+}
+
+"""Time-series usage data for one metric on one resource."""
+type UsageMetric {
+  resourceId: ID!
+  metric: MetricName!
+  granularity: Granularity!
+  periodStart: DateTime!
+  periodEnd: DateTime!
+  datapoints: [MetricDatapoint!]!
+  statistics: MetricStatistics
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Recommendations
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Schedule suggestion for 'SCHEDULE' recommendations."""
+type ScheduleSuggestion {
+  """Cron expression for resource start (e.g. "0 8 * * MON-FRI")."""
+  startCron: String!
+  """Cron expression for resource stop (e.g. "0 20 * * MON-FRI")."""
+  stopCron: String!
+  timezone: String!
+}
+
+"""Recommendation-specific detail payload."""
+type RecommendationDetails {
+  currentInstanceType: String
+  recommendedInstanceType: String
+  currentMonthlyCostUsd: Float
+  projectedMonthlyCostUsd: Float
+  avgCpuUtilizationPercent: Float
+  avgMemoryUtilizationPercent: Float
+  """Number of days of historical data used to generate this recommendation."""
+  observationPeriodDays: Int
+  scheduleSuggestion: ScheduleSuggestion
+}
+
+"""A cost optimization recommendation for a specific cloud resource."""
+type Recommendation {
+  """Atlas-internal opaque recommendation identifier."""
+  id: ID!
+  resourceId: ID!
+  """The resource this recommendation applies to."""
+  resource: Resource!
+  type: RecommendationType!
+  status: RecommendationStatus!
+  """Short human-readable title."""
+  title: String!
+  """Detailed explanation of the recommendation and supporting evidence."""
+  description: String!
+  """Projected monthly savings in USD if the recommendation is applied."""
+  savingsUsdMonthly: Float!
+  """Projected annual savings in USD."""
+  savingsUsdAnnual: Float!
+  """
+  Model confidence score between 0.0 (low) and 1.0 (high).
+  Reflects data quality and prediction certainty.
+  """
+  confidence: Float!
+  details: RecommendationDetails
+  createdAt: DateTime!
+  expiresAt: DateTime!
+  appliedAt: DateTime
+  dismissedAt: DateTime
+  rejectionReason: String
+}
+
+type RecommendationEdge {
+  cursor: String!
+  node: Recommendation!
+}
+
+type RecommendationConnection {
+  edges: [RecommendationEdge!]!
+  pageInfo: PageInfo!
+  """Total potential monthly savings across all matching recommendations."""
+  totalSavingsUsdMonthly: Float!
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Forecasts
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Defines what a forecast covers (account / region / resource type / resource)."""
+type ForecastScope {
+  accountId: String
+  region: String
+  resourceType: ResourceType
+  resourceId: ID
+}
+
+"""A single cost bucket within a forecast."""
+type ForecastDatapoint {
+  """ISO 8601 date for this bucket."""
+  date: Date!
+  """Projected cost in USD."""
+  costUsd: Float!
+  """Lower confidence-interval bound in USD."""
+  lowerBoundUsd: Float
+  """Upper confidence-interval bound in USD."""
+  upperBoundUsd: Float
+}
+
+"""A cost forecast produced by an Atlas forecasting model."""
+type Forecast {
+  """Atlas-internal opaque forecast identifier."""
+  id: ID!
+  scope: ForecastScope!
+  granularity: ForecastGranularity!
+  """Internal model identifier (e.g. "prophet_v3")."""
+  model: String!
+  """Statistical confidence level for the bounds (e.g. 0.95 = 95% CI)."""
+  confidenceLevel: Float!
+  generatedAt: DateTime!
+  periodStart: DateTime!
+  periodEnd: DateTime!
+  datapoints: [ForecastDatapoint!]!
+  """Sum of all datapoint costs across the forecast period."""
+  totalCostUsd: Float!
+  """
+  Potential savings over the forecast period if all pending recommendations
+  for this scope are applied.
+  """
+  savingsOpportunityUsd: Float
+}
+
+type ForecastEdge {
+  cursor: String!
+  node: Forecast!
+}
+
+type ForecastConnection {
+  edges: [ForecastEdge!]!
+  pageInfo: PageInfo!
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Optimization Jobs
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Handle for an asynchronous optimization analysis job."""
+type OptimizationJob {
+  id: ID!
+  status: OptimizationJobStatus!
+  createdAt: DateTime!
+  estimatedCompletion: DateTime
+  completedAt: DateTime
+  errorMessage: String
+  """
+  Recommendations generated by this job (only populated when status = COMPLETED).
+  """
+  recommendations(
+    first: Int = 20
+    after: String
+  ): RecommendationConnection
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Error
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Structured error type returned in mutation payloads."""
+type UserError {
+  """Machine-readable error code."""
+  code: String!
+  """Human-readable message."""
+  message: String!
+  """JSON path to the field that caused the error (if applicable)."""
+  field: String
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Input Types
+# ─────────────────────────────────────────────────────────────────────────────
+
+input SortInput {
+  direction: SortDirection! = DESC
+}
+
+input ResourceSortInput {
+  field: ResourceSortField! = MONTHLY_COST
+  direction: SortDirection! = DESC
+}
+
+input RecommendationSortInput {
+  field: RecommendationSortField! = SAVINGS
+  direction: SortDirection! = DESC
+}
+
+"""Filter resources by common attributes."""
+input ResourceFilter {
+  type: ResourceType
+  provider: CloudProvider
+  accountId: String
+  region: String
+  status: ResourceStatus
+  """Filter by tag in "key:value" format. Multiple entries are ANDed."""
+  tags: [String!]
+  minMonthlyCostUsd: Float
+  maxMonthlyCostUsd: Float
+}
+
+"""Filter recommendations by common attributes."""
+input RecommendationFilter {
+  resourceId: ID
+  resourceType: ResourceType
+  type: RecommendationType
+  status: RecommendationStatus
+  accountId: String
+  region: String
+  minSavingsUsdMonthly: Float
+  minConfidence: Float
+}
+
+"""Filter forecasts by scope."""
+input ForecastFilter {
+  accountId: String
+  region: String
+  resourceType: ResourceType
+  resourceId: ID
+  granularity: ForecastGranularity
+}
+
+"""Scope definition for optimization and forecasting operations."""
+input ScopeInput {
+  accountId: String
+  region: String
+  resourceType: ResourceType
+  """Specific resource IDs to include (max 500)."""
+  resourceIds: [ID!]
+}
+
+"""Options that control an optimization analysis run."""
+input OptimizationOptionsInput {
+  """Days of historical utilization data to analyse (7–90, default 30)."""
+  observationPeriodDays: Int = 30
+  includeReservedInstances: Boolean = true
+  includeSavingsPlans: Boolean = true
+  """
+  Minimum confidence score for a recommendation to be persisted (0.0–1.0).
+  """
+  minConfidenceThreshold: Float = 0.7
+}
+
+"""Payload for the actOnRecommendation mutation."""
+input RecommendationActionInput {
+  recommendationId: ID!
+  action: RecommendationAction!
+  """Optional reason for rejection or dismissal."""
+  reason: String
+}
+
+"""Payload for triggering a new optimization run."""
+input TriggerOptimizationInput {
+  """Limit the scope of the analysis (full account if omitted)."""
+  scope: ScopeInput
+  options: OptimizationOptionsInput
+}
+
+"""Payload for requesting a new forecast."""
+input GenerateForecastInput {
+  periodStart: DateTime!
+  periodEnd: DateTime!
+  granularity: ForecastGranularity!
+  scope: ScopeInput
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mutation Payloads
+# ─────────────────────────────────────────────────────────────────────────────
+
+type TriggerOptimizationPayload {
+  """The queued job handle. Poll `optimizationJob(id:)` for status."""
+  job: OptimizationJob
+  userErrors: [UserError!]!
+}
+
+type ActOnRecommendationPayload {
+  """The updated recommendation after the action."""
+  recommendation: Recommendation
+  userErrors: [UserError!]!
+}
+
+type GenerateForecastPayload {
+  """The queued job; the finished forecast will appear in `forecasts()`."""
+  job: OptimizationJob
+  userErrors: [UserError!]!
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Root Types
+# ─────────────────────────────────────────────────────────────────────────────
+
+type Query {
+  # ── Resources ──────────────────────────────────────────────────────────────
+
+  """Fetch a single resource by its Atlas ID."""
+  resource(id: ID!): Resource
+
+  """
+  Paginated list of cloud resources with optional filtering and sorting.
+  Defaults to 20 results sorted by monthly cost descending.
+  """
+  resources(
+    filter: ResourceFilter
+    sort: ResourceSortInput
+    first: Int = 20
+    after: String
+    before: String
+    last: Int
+  ): ResourceConnection!
+
+  # ── Usage ──────────────────────────────────────────────────────────────────
+
+  """
+  Usage time-series metrics for one resource.
+  Returns one UsageMetric object per requested metric name.
+  """
+  resourceUsage(
+    resourceId: ID!
+    metrics: [MetricName!]
+    startTime: DateTime
+    endTime: DateTime
+    granularity: Granularity = ONE_HOUR
+  ): [UsageMetric!]!
+
+  # ── Recommendations ────────────────────────────────────────────────────────
+
+  """Fetch a single recommendation by its Atlas ID."""
+  recommendation(id: ID!): Recommendation
+
+  """
+  Paginated list of recommendations with optional filtering and sorting.
+  Defaults to 20 results sorted by monthly savings descending.
+  """
+  recommendations(
+    filter: RecommendationFilter
+    sort: RecommendationSortInput
+    first: Int = 20
+    after: String
+    before: String
+    last: Int
+  ): RecommendationConnection!
+
+  # ── Forecasts ──────────────────────────────────────────────────────────────
+
+  """Fetch a single forecast by its Atlas ID."""
+  forecast(id: ID!): Forecast
+
+  """
+  Paginated list of forecasts ordered by generation time (newest first).
+  """
+  forecasts(
+    filter: ForecastFilter
+    first: Int = 20
+    after: String
+    before: String
+    last: Int
+  ): ForecastConnection!
+
+  # ── Jobs ───────────────────────────────────────────────────────────────────
+
+  """Poll an optimization job for its current status."""
+  optimizationJob(id: ID!): OptimizationJob
+}
+
+type Mutation {
+  """
+  Trigger an asynchronous optimization analysis run over the specified scope.
+  New and updated recommendations will appear in `recommendations()` once
+  the returned job reaches status COMPLETED.
+  """
+  triggerOptimization(input: TriggerOptimizationInput!): TriggerOptimizationPayload!
+
+  """
+  Accept, reject, or dismiss a recommendation.
+  Accepted recommendations are queued for automated application.
+  Dismissed recommendations are suppressed from future generation.
+  """
+  actOnRecommendation(input: RecommendationActionInput!): ActOnRecommendationPayload!
+
+  """
+  Request asynchronous generation of a cost forecast.
+  The finished forecast will be queryable via `forecasts()` once complete.
+  """
+  generateForecast(input: GenerateForecastInput!): GenerateForecastPayload!
+}
+
+type Subscription {
+  """
+  Stream status updates for a running optimization job until it reaches
+  a terminal state (COMPLETED or FAILED).
+  """
+  optimizationJobUpdated(jobId: ID!): OptimizationJob!
+
+  """
+  Receive a notification whenever a new recommendation is created for a
+  specific resource.
+  """
+  recommendationCreated(resourceId: ID): Recommendation!
+}

@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-inter: "Inter", "Manrope", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", "JetBrains Mono", monospace;
+  }
+
+  * {
+    @apply border-slate-200;
+  }
+
+  html {
+    @apply scroll-smooth antialiased;
+  }
+
+  body {
+    background: #0f172a;
+    @apply text-slate-900;
+  }
+
+  ::selection {
+    @apply bg-brand-600/30 text-white;
+  }
+
+  ::-webkit-scrollbar {
+    @apply h-1.5 w-1.5;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-700;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-600;
+  }
+}
+
+@layer components {
+  /* ── Dashboard surfaces (light) ──────────────────────────────────────── */
+  .card {
+    @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+  }
+
+  .panel-dark {
+    @apply rounded-2xl border border-slate-800 bg-slate-950 text-white;
+  }
+
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+  .btn-primary {
+    @apply bg-brand-600 hover:bg-brand-500 focus-visible:ring-brand-500 inline-flex cursor-pointer items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply focus-visible:ring-brand-500 inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all duration-150 hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  /* ── Badges ──────────────────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .badge-green {
+    @apply badge bg-success-50 text-success-700;
+  }
+
+  .badge-yellow {
+    @apply badge bg-warning-50 text-warning-700;
+  }
+
+  .badge-red {
+    @apply badge bg-danger-50 text-danger-700;
+  }
+
+  /* ── Typography helpers ──────────────────────────────────────────────── */
+  .section-kicker {
+    @apply text-brand-600 inline-block text-xs font-semibold uppercase tracking-widest;
+  }
+
+  .section-heading {
+    @apply text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl;
+  }
+
+  .section-copy {
+    @apply text-base leading-7 text-slate-500;
+  }
+
+  /* ── Metric card ─────────────────────────────────────────────────────── */
+  .metric-card {
+    @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-200 hover:shadow-md;
+  }
+
+  .soft-divider {
+    @apply border-t border-slate-100;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .text-pretty {
+    text-wrap: pretty;
+  }
+
+  .animate-fade-up {
+    animation: fadeUp 0.45s ease-out both;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out both;
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

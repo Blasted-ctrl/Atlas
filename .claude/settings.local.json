@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l c:/Users/kings/atlas/infra/postgres/migrations/*.sql c:/Users/kings/atlas/infra/postgres/seed.py c:/Users/kings/atlas/infra/postgres/queries/*.sql)",
+      "Bash(pip --version)",
+      "Bash(ls -la /c/Users/kings/atlas/*.md)"
+    ]
+  }
+}

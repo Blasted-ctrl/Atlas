@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+.next/
+dist/
+build/
+out/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Turbo
+.turbo/
+
+# Environment variables — never commit these
+.env
+.env.local
+.env.*.local
+apps/web/.env.local
+apps/api/.env
+apps/worker/.env
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python virtualenvs
+.venv/
+venv/
+env/
+
+# Docker
+*.log
+
+# Coverage
+coverage/
+.coverage
+htmlcov/
+
+# TypeScript
+*.tsbuildinfo

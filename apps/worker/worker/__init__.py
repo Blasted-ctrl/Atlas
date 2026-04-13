@@ -1,0 +1,1 @@
+# Atlas Celery Worker package

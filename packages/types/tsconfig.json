@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@atlas/types": ["./src/index.ts"],
+      "@atlas/types/api": ["./src/api.ts"],
+      "@atlas/types/models": ["./src/models.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

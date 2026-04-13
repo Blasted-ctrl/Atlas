@@ -1,0 +1,1550 @@
+openapi: 3.1.0
+
+info:
+  title: Atlas Cloud Cost Optimizer API
+  version: 1.0.0
+  description: |
+    REST API for managing cloud resources, usage metrics, optimization
+    recommendations, and cost forecasts across AWS, GCP, and Azure.
+
+    ## Authentication
+    All endpoints require either a Bearer JWT or an API key via `X-API-Key`.
+
+    ## Rate Limiting
+    Limits are per-key, per-minute. Responses include `X-RateLimit-*` headers.
+    Exceeded limits return HTTP 429 with a `Retry-After` header.
+
+    ## Pagination
+    List endpoints use cursor-based pagination. Pass the `next_cursor` value
+    from one response as `cursor` in the next request.
+
+    ## Timestamps
+    All timestamps are ISO 8601 / RFC 3339 in UTC (e.g. `2024-03-01T12:00:00Z`).
+
+servers:
+  - url: https://api.atlas.example.com/v1
+    description: Production
+  - url: https://api.staging.atlas.example.com/v1
+    description: Staging
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Components
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+
+  # ── Security ────────────────────────────────────────────────────────────────
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  # ── Shared Parameters ────────────────────────────────────────────────────────
+  parameters:
+    cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor returned by the previous page response.
+      schema:
+        type: string
+
+    limit:
+      name: limit
+      in: query
+      description: Items per page (1–100, default 20).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    startTime:
+      name: start_time
+      in: query
+      description: Inclusive range start (ISO 8601 UTC).
+      schema:
+        type: string
+        format: date-time
+      example: "2024-01-01T00:00:00Z"
+
+    endTime:
+      name: end_time
+      in: query
+      description: Exclusive range end (ISO 8601 UTC).
+      schema:
+        type: string
+        format: date-time
+      example: "2024-04-01T00:00:00Z"
+
+    resourceType:
+      name: resource_type
+      in: query
+      description: Filter by cloud resource type.
+      schema:
+        $ref: '#/components/schemas/ResourceType'
+
+    pathResourceId:
+      name: resource_id
+      in: path
+      required: true
+      schema:
+        type: string
+      example: res_01J8XKZF3BCMX7Y9QWR4TV2NP
+
+    pathRecommendationId:
+      name: recommendation_id
+      in: path
+      required: true
+      schema:
+        type: string
+      example: rec_01J8XKZF3BCMX7Y9QWR4TV2NP
+
+    pathForecastId:
+      name: forecast_id
+      in: path
+      required: true
+      schema:
+        type: string
+      example: fct_01J8XKZF3BCMX7Y9QWR4TV2NP
+
+  # ── Response Headers ─────────────────────────────────────────────────────────
+  headers:
+    X-RateLimit-Limit:
+      description: Maximum requests allowed in the current window.
+      schema:
+        type: integer
+      example: 1000
+
+    X-RateLimit-Remaining:
+      description: Requests remaining in the current window.
+      schema:
+        type: integer
+      example: 987
+
+    X-RateLimit-Reset:
+      description: Unix timestamp (seconds) when the window resets.
+      schema:
+        type: integer
+      example: 1709380800
+
+    X-RateLimit-Window:
+      description: Window size in seconds.
+      schema:
+        type: integer
+      example: 60
+
+    X-Request-Id:
+      description: Unique identifier for this request (for support).
+      schema:
+        type: string
+      example: req_01J8XKZF3BCMX7Y9QWR4TV2NP
+
+  # ── Schemas ──────────────────────────────────────────────────────────────────
+  schemas:
+
+    # ── Enumerations ──────────────────────────────────────────────────────────
+
+    ResourceType:
+      type: string
+      description: Cloud resource category.
+      enum:
+        - ec2_instance
+        - rds_instance
+        - rds_cluster
+        - elasticache_cluster
+        - lambda_function
+        - s3_bucket
+        - eks_node_group
+        - elb
+        - ebs_volume
+        - cloudfront_distribution
+        - nat_gateway
+
+    ResourceStatus:
+      type: string
+      enum:
+        - running
+        - stopped
+        - terminated
+        - pending
+        - unknown
+
+    CloudProvider:
+      type: string
+      enum:
+        - aws
+        - gcp
+        - azure
+
+    MetricName:
+      type: string
+      enum:
+        - cpu_utilization
+        - memory_utilization
+        - network_in_bytes
+        - network_out_bytes
+        - disk_read_ops
+        - disk_write_ops
+        - connections
+        - request_count
+        - error_rate
+
+    Granularity:
+      type: string
+      description: Time-series bucket size.
+      enum: ["1m", "5m", "15m", "1h", "6h", "1d"]
+
+    RecommendationType:
+      type: string
+      enum:
+        - resize_down
+        - resize_up
+        - terminate
+        - schedule
+        - reserved_instance
+        - savings_plan
+        - graviton_migration
+
+    RecommendationStatus:
+      type: string
+      enum:
+        - pending
+        - accepted
+        - rejected
+        - applied
+        - dismissed
+        - expired
+
+    RecommendationAction:
+      type: string
+      enum:
+        - accept
+        - reject
+        - dismiss
+
+    ForecastGranularity:
+      type: string
+      enum:
+        - daily
+        - weekly
+        - monthly
+
+    OptimizationJobStatus:
+      type: string
+      enum:
+        - queued
+        - running
+        - completed
+        - failed
+
+    # ── Core Entities ─────────────────────────────────────────────────────────
+
+    Resource:
+      type: object
+      required:
+        - id
+        - external_id
+        - type
+        - provider
+        - account_id
+        - region
+        - status
+        - tags
+        - monthly_cost_usd
+        - created_at
+        - last_seen_at
+      properties:
+        id:
+          type: string
+          description: Atlas-internal resource ID.
+          example: res_01J8XKZF3BCMX7Y9QWR4TV2NP
+        external_id:
+          type: string
+          description: Cloud-provider native resource identifier.
+          example: i-0abc123def456789a
+        name:
+          type: string
+          description: Human-readable name (from tags or provider metadata).
+          example: prod-api-server-01
+        type:
+          $ref: '#/components/schemas/ResourceType'
+        provider:
+          $ref: '#/components/schemas/CloudProvider'
+        account_id:
+          type: string
+          description: Cloud account / project / subscription ID.
+          example: "123456789012"
+        region:
+          type: string
+          example: us-east-1
+        availability_zone:
+          type: string
+          nullable: true
+          example: us-east-1a
+        status:
+          $ref: '#/components/schemas/ResourceStatus'
+        instance_type:
+          type: string
+          nullable: true
+          description: Instance / SKU type (null for non-compute resources).
+          example: m5.xlarge
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          description: Key-value tags attached to the resource.
+          example:
+            Environment: production
+            Team: platform
+        monthly_cost_usd:
+          type: number
+          format: double
+          description: Current estimated monthly cost in USD.
+          example: 142.56
+        created_at:
+          type: string
+          format: date-time
+          description: When Atlas first discovered this resource.
+          example: "2024-01-15T08:30:00Z"
+        last_seen_at:
+          type: string
+          format: date-time
+          description: Last time Atlas synced this resource's state.
+          example: "2024-04-12T06:00:00Z"
+
+    ResourceDetail:
+      description: Extended resource with provider-specific specs and network info.
+      allOf:
+        - $ref: '#/components/schemas/Resource'
+        - type: object
+          properties:
+            specs:
+              type: object
+              description: Provider-specific hardware / configuration details.
+              additionalProperties: true
+              example:
+                vcpus: 4
+                memory_gib: 16
+                storage_gib: 100
+                architecture: x86_64
+            network:
+              type: object
+              nullable: true
+              properties:
+                vpc_id:
+                  type: string
+                  nullable: true
+                subnet_id:
+                  type: string
+                  nullable: true
+                security_groups:
+                  type: array
+                  items:
+                    type: string
+                public_ip:
+                  type: string
+                  nullable: true
+                private_ip:
+                  type: string
+                  nullable: true
+
+    MetricDatapoint:
+      type: object
+      required:
+        - timestamp
+        - value
+        - unit
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: "2024-03-01T12:00:00Z"
+        value:
+          type: number
+          format: double
+          example: 23.5
+        unit:
+          type: string
+          description: Measurement unit (e.g. Percent, Bytes, Count).
+          example: Percent
+
+    MetricStatistics:
+      type: object
+      properties:
+        min:
+          type: number
+          format: double
+        max:
+          type: number
+          format: double
+        avg:
+          type: number
+          format: double
+        p50:
+          type: number
+          format: double
+        p90:
+          type: number
+          format: double
+        p99:
+          type: number
+          format: double
+
+    UsageMetric:
+      type: object
+      required:
+        - resource_id
+        - metric
+        - granularity
+        - period_start
+        - period_end
+        - datapoints
+      properties:
+        resource_id:
+          type: string
+        metric:
+          $ref: '#/components/schemas/MetricName'
+        granularity:
+          $ref: '#/components/schemas/Granularity'
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        datapoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricDatapoint'
+        statistics:
+          $ref: '#/components/schemas/MetricStatistics'
+
+    RecommendationDetails:
+      type: object
+      description: Recommendation-specific payload (shape depends on type).
+      properties:
+        current_instance_type:
+          type: string
+          nullable: true
+        recommended_instance_type:
+          type: string
+          nullable: true
+        current_monthly_cost_usd:
+          type: number
+          format: double
+        projected_monthly_cost_usd:
+          type: number
+          format: double
+        avg_cpu_utilization_percent:
+          type: number
+          format: double
+          nullable: true
+        avg_memory_utilization_percent:
+          type: number
+          format: double
+          nullable: true
+        observation_period_days:
+          type: integer
+          example: 30
+        schedule_suggestion:
+          type: object
+          nullable: true
+          description: For 'schedule' recommendations.
+          properties:
+            start_cron:
+              type: string
+              example: "0 8 * * MON-FRI"
+            stop_cron:
+              type: string
+              example: "0 20 * * MON-FRI"
+            timezone:
+              type: string
+              example: America/New_York
+
+    Recommendation:
+      type: object
+      required:
+        - id
+        - resource_id
+        - type
+        - status
+        - title
+        - description
+        - savings_usd_monthly
+        - savings_usd_annual
+        - confidence
+        - created_at
+        - expires_at
+      properties:
+        id:
+          type: string
+          example: rec_01J8XKZF3BCMX7Y9QWR4TV2NP
+        resource_id:
+          type: string
+        type:
+          $ref: '#/components/schemas/RecommendationType'
+        status:
+          $ref: '#/components/schemas/RecommendationStatus'
+        title:
+          type: string
+          example: "Downsize m5.xlarge → m5.large"
+        description:
+          type: string
+          example: >
+            CPU utilization averaged 8% over 30 days. Downsizing will save
+            $71.28/month with minimal performance impact.
+        savings_usd_monthly:
+          type: number
+          format: double
+          example: 71.28
+        savings_usd_annual:
+          type: number
+          format: double
+          example: 855.36
+        confidence:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+          description: Model confidence score (0 = low, 1 = high).
+          example: 0.92
+        details:
+          $ref: '#/components/schemas/RecommendationDetails'
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        applied_at:
+          type: string
+          format: date-time
+          nullable: true
+        dismissed_at:
+          type: string
+          format: date-time
+          nullable: true
+        rejection_reason:
+          type: string
+          nullable: true
+
+    ForecastScope:
+      type: object
+      description: >
+        Defines what the forecast covers. At least one field should be set.
+        More specific scopes take precedence (resource_id > resource_type > region > account_id).
+      properties:
+        account_id:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        resource_type:
+          $ref: '#/components/schemas/ResourceType'
+          nullable: true
+        resource_id:
+          type: string
+          nullable: true
+
+    ForecastDatapoint:
+      type: object
+      required:
+        - date
+        - cost_usd
+      properties:
+        date:
+          type: string
+          format: date
+          description: Calendar date of this bucket (ISO 8601).
+          example: "2024-04-01"
+        cost_usd:
+          type: number
+          format: double
+          example: 4521.34
+        lower_bound_usd:
+          type: number
+          format: double
+          description: Lower confidence-interval bound.
+          example: 4200.00
+        upper_bound_usd:
+          type: number
+          format: double
+          description: Upper confidence-interval bound.
+          example: 4800.00
+
+    Forecast:
+      type: object
+      required:
+        - id
+        - scope
+        - granularity
+        - model
+        - confidence_level
+        - generated_at
+        - period_start
+        - period_end
+        - datapoints
+        - total_cost_usd
+      properties:
+        id:
+          type: string
+          example: fct_01J8XKZF3BCMX7Y9QWR4TV2NP
+        scope:
+          $ref: '#/components/schemas/ForecastScope'
+        granularity:
+          $ref: '#/components/schemas/ForecastGranularity'
+        model:
+          type: string
+          description: Internal model identifier used to generate this forecast.
+          example: prophet_v3
+        confidence_level:
+          type: number
+          format: double
+          description: Statistical confidence level for the bounds (e.g. 0.95 = 95%).
+          example: 0.95
+        generated_at:
+          type: string
+          format: date-time
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        datapoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/ForecastDatapoint'
+        total_cost_usd:
+          type: number
+          format: double
+          description: Sum of all datapoint costs over the period.
+          example: 54256.08
+        savings_opportunity_usd:
+          type: number
+          format: double
+          description: >
+            Potential savings if all pending recommendations are applied,
+            extrapolated over the forecast period.
+          example: 10251.84
+
+    # ── Pagination ────────────────────────────────────────────────────────────
+
+    PageInfo:
+      type: object
+      required:
+        - total_count
+        - has_next_page
+        - has_previous_page
+      properties:
+        total_count:
+          type: integer
+          description: Total number of items matching the query (may be approximate for large sets).
+          example: 342
+        has_next_page:
+          type: boolean
+        has_previous_page:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+          description: Pass as `cursor` to fetch the next page.
+        previous_cursor:
+          type: string
+          nullable: true
+          description: Pass as `cursor` to fetch the previous page.
+
+    # ── Paginated List Wrappers ───────────────────────────────────────────────
+
+    ResourceListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Resource'
+        pagination:
+          $ref: '#/components/schemas/PageInfo'
+
+    UsageListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageMetric'
+        pagination:
+          $ref: '#/components/schemas/PageInfo'
+
+    RecommendationListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recommendation'
+        pagination:
+          $ref: '#/components/schemas/PageInfo'
+
+    ForecastListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Forecast'
+        pagination:
+          $ref: '#/components/schemas/PageInfo'
+
+    # ── Errors ────────────────────────────────────────────────────────────────
+
+    ErrorCode:
+      type: string
+      enum:
+        - invalid_request
+        - authentication_required
+        - forbidden
+        - resource_not_found
+        - conflict
+        - rate_limit_exceeded
+        - internal_error
+        - service_unavailable
+
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+          example: start_time
+        message:
+          type: string
+          example: "must be before end_time"
+
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+          example: "start_time must be before end_time"
+        field_errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+          nullable: true
+        request_id:
+          type: string
+          description: Use this when contacting support.
+          example: req_01J8XKZF3BCMX7Y9QWR4TV2NP
+        documentation_url:
+          type: string
+          format: uri
+          example: https://docs.atlas.example.com/errors#invalid_request
+
+    # ── Async Job ─────────────────────────────────────────────────────────────
+
+    AsyncJob:
+      type: object
+      required: [job_id, status, created_at]
+      properties:
+        job_id:
+          type: string
+          example: job_01J8XKZF3BCMX7Y9QWR4TV2NP
+        status:
+          $ref: '#/components/schemas/OptimizationJobStatus'
+        created_at:
+          type: string
+          format: date-time
+        estimated_completion:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+
+  # ── Reusable Responses ────────────────────────────────────────────────────
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: authentication_required
+            message: "A valid Bearer token or API key is required."
+            request_id: req_01J8XKZF3BCMX7Y9QWR4TV2NP
+
+    Forbidden:
+      description: Authenticated but lacking permission.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: The requested resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Conflict:
+      description: State conflict (e.g. already in terminal status).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    RateLimited:
+      description: Rate limit exceeded.
+      headers:
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/X-RateLimit-Limit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/X-RateLimit-Remaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/X-RateLimit-Reset'
+        Retry-After:
+          description: Seconds until the client may retry.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Paths
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ============================================================
+  # RESOURCES
+  # ============================================================
+
+  /resources:
+    get:
+      operationId: listResources
+      summary: List cloud resources
+      description: Returns a paginated, filterable list of discovered cloud resources.
+      tags: [Resources]
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/resourceType'
+        - name: provider
+          in: query
+          schema:
+            $ref: '#/components/schemas/CloudProvider'
+        - name: account_id
+          in: query
+          schema:
+            type: string
+        - name: region
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ResourceStatus'
+        - name: tag
+          in: query
+          description: |
+            Filter by tag in `key:value` format. Repeatable for multiple tags (AND logic).
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+          example: "Environment:production"
+        - name: min_monthly_cost
+          in: query
+          description: Minimum monthly cost in USD (inclusive).
+          schema:
+            type: number
+            format: double
+        - name: max_monthly_cost
+          in: query
+          description: Maximum monthly cost in USD (inclusive).
+          schema:
+            type: number
+            format: double
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - monthly_cost_desc
+              - monthly_cost_asc
+              - created_at_desc
+              - created_at_asc
+              - name_asc
+              - name_desc
+            default: monthly_cost_desc
+      responses:
+        "200":
+          description: Paginated resource list.
+          headers:
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/X-RateLimit-Limit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/X-RateLimit-Remaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/X-RateLimit-Reset'
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceListResponse'
+        "400":
+          description: Invalid query parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  /resources/{resource_id}:
+    get:
+      operationId: getResource
+      summary: Get a resource by ID
+      description: Returns full details including provider-specific specs and network configuration.
+      tags: [Resources]
+      parameters:
+        - $ref: '#/components/parameters/pathResourceId'
+      responses:
+        "200":
+          description: Resource detail.
+          headers:
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/X-RateLimit-Limit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/X-RateLimit-Remaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/X-RateLimit-Reset'
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceDetail'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================================
+  # USAGE
+  # ============================================================
+
+  /usage:
+    get:
+      operationId: listUsageMetrics
+      summary: List usage time-series across resources
+      description: |
+        Returns paginated usage metrics. At least one of `resource_id`,
+        `resource_type`, `account_id`, or `region` is recommended to avoid
+        overly broad queries. Maximum time range is 90 days.
+      tags: [Usage]
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/startTime'
+        - $ref: '#/components/parameters/endTime'
+        - $ref: '#/components/parameters/resourceType'
+        - name: resource_id
+          in: query
+          description: Comma-separated list of Atlas resource IDs.
+          schema:
+            type: string
+          example: "res_abc123,res_def456"
+        - name: metric
+          in: query
+          description: Metric to return (all metrics if omitted).
+          schema:
+            $ref: '#/components/schemas/MetricName'
+        - name: granularity
+          in: query
+          schema:
+            $ref: '#/components/schemas/Granularity'
+          example: "1h"
+        - name: account_id
+          in: query
+          schema:
+            type: string
+        - name: region
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated usage metrics.
+          headers:
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/X-RateLimit-Limit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/X-RateLimit-Remaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/X-RateLimit-Reset'
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageListResponse'
+        "400":
+          description: Invalid parameters (e.g. time range exceeds 90 days).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  /usage/{resource_id}:
+    get:
+      operationId: getResourceUsage
+      summary: Get usage metrics for a specific resource
+      description: Returns one time-series per requested metric for the given resource.
+      tags: [Usage]
+      parameters:
+        - $ref: '#/components/parameters/pathResourceId'
+        - $ref: '#/components/parameters/startTime'
+        - $ref: '#/components/parameters/endTime'
+        - name: metric
+          in: query
+          description: Comma-separated metrics to return. Returns all available metrics if omitted.
+          schema:
+            type: string
+          example: "cpu_utilization,memory_utilization"
+        - name: granularity
+          in: query
+          schema:
+            $ref: '#/components/schemas/Granularity'
+          example: "1h"
+      responses:
+        "200":
+          description: Array of usage metric time-series.
+          headers:
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/X-RateLimit-Limit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/X-RateLimit-Remaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/X-RateLimit-Reset'
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UsageMetric'
+        "400":
+          description: Invalid parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================================
+  # RECOMMENDATIONS
+  # ============================================================
+
+  /recommendations:
+    get:
+      operationId: listRecommendations
+      summary: List optimization recommendations
+      description: Returns paginated recommendations sorted by savings opportunity by default.
+      tags: [Recommendations]
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/resourceType'
+        - name: resource_id
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/RecommendationType'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/RecommendationStatus'
+        - name: min_savings
+          in: query
+          description: Minimum monthly savings in USD.
+          schema:
+            type: number
+            format: double
+        - name: min_confidence
+          in: query
+          description: Minimum confidence score (0.0–1.0).
+          schema:
+            type: number
+            format: double
+            minimum: 0.0
+            maximum: 1.0
+        - name: account_id
+          in: query
+          schema:
+            type: string
+        - name: region
+          in: query
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - savings_desc
+              - savings_asc
+              - confidence_desc
+              - confidence_asc
+              - created_at_desc
+              - created_at_asc
+            default: savings_desc
+      responses:
+        "200":
+          description: Paginated recommendation list.
+          headers:
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/X-RateLimit-Limit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/X-RateLimit-Remaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/X-RateLimit-Reset'
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationListResponse'
+        "400":
+          description: Invalid query parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  /recommendations/{recommendation_id}:
+    get:
+      operationId: getRecommendation
+      summary: Get a recommendation by ID
+      tags: [Recommendations]
+      parameters:
+        - $ref: '#/components/parameters/pathRecommendationId'
+      responses:
+        "200":
+          description: Recommendation detail.
+          headers:
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/X-RateLimit-Limit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/X-RateLimit-Remaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/X-RateLimit-Reset'
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recommendation'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  /recommendations/{recommendation_id}/actions:
+    post:
+      operationId: actOnRecommendation
+      summary: Accept, reject, or dismiss a recommendation
+      description: |
+        Transitions the recommendation to a new status:
+        - `accept` → `accepted` (queues the change for application)
+        - `reject` → `rejected`
+        - `dismiss` → `dismissed` (suppresses future re-generation)
+      tags: [Recommendations]
+      parameters:
+        - $ref: '#/components/parameters/pathRecommendationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  $ref: '#/components/schemas/RecommendationAction'
+                reason:
+                  type: string
+                  description: Optional reason for rejection or dismissal.
+                  maxLength: 1000
+      responses:
+        "200":
+          description: Updated recommendation.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recommendation'
+        "400":
+          description: Invalid action or malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================================
+  # FORECASTS
+  # ============================================================
+
+  /forecasts:
+    get:
+      operationId: listForecasts
+      summary: List cost forecasts
+      description: Returns paginated forecasts ordered by generation time (newest first).
+      tags: [Forecasts]
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/startTime'
+        - $ref: '#/components/parameters/endTime'
+        - $ref: '#/components/parameters/resourceType'
+        - name: account_id
+          in: query
+          schema:
+            type: string
+        - name: region
+          in: query
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          schema:
+            type: string
+        - name: granularity
+          in: query
+          schema:
+            $ref: '#/components/schemas/ForecastGranularity'
+      responses:
+        "200":
+          description: Paginated forecast list.
+          headers:
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/X-RateLimit-Limit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/X-RateLimit-Remaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/X-RateLimit-Reset'
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForecastListResponse'
+        "400":
+          description: Invalid query parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  /forecasts/{forecast_id}:
+    get:
+      operationId: getForecast
+      summary: Get a forecast by ID
+      tags: [Forecasts]
+      parameters:
+        - $ref: '#/components/parameters/pathForecastId'
+      responses:
+        "200":
+          description: Forecast detail with all datapoints.
+          headers:
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/X-RateLimit-Limit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/X-RateLimit-Remaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/X-RateLimit-Reset'
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Forecast'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  /forecasts/generate:
+    post:
+      operationId: generateForecast
+      summary: Request a new forecast (async)
+      description: |
+        Enqueues a forecast generation job. Poll the returned `job_id` via
+        `/forecasts/{forecast_id}` once the job completes.
+      tags: [Forecasts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [period_start, period_end, granularity]
+              properties:
+                period_start:
+                  type: string
+                  format: date-time
+                  example: "2024-04-01T00:00:00Z"
+                period_end:
+                  type: string
+                  format: date-time
+                  example: "2024-07-01T00:00:00Z"
+                granularity:
+                  $ref: '#/components/schemas/ForecastGranularity'
+                scope:
+                  $ref: '#/components/schemas/ForecastScope'
+      responses:
+        "202":
+          description: Forecast job accepted.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncJob'
+        "400":
+          description: Invalid request body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================================
+  # OPTIMIZATION
+  # ============================================================
+
+  /optimize:
+    post:
+      operationId: triggerOptimization
+      summary: Trigger an optimization analysis run (async)
+      description: |
+        Scans the specified scope for new savings opportunities and refreshes
+        recommendation scores. Returns a job handle; results appear in
+        `/recommendations` once the job completes.
+      tags: [Optimization]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scope:
+                  type: object
+                  description: Limit the run to a subset of infrastructure.
+                  properties:
+                    account_id:
+                      type: string
+                      nullable: true
+                    region:
+                      type: string
+                      nullable: true
+                    resource_type:
+                      $ref: '#/components/schemas/ResourceType'
+                      nullable: true
+                    resource_ids:
+                      type: array
+                      items:
+                        type: string
+                      maxItems: 500
+                      nullable: true
+                options:
+                  type: object
+                  properties:
+                    observation_period_days:
+                      type: integer
+                      minimum: 7
+                      maximum: 90
+                      default: 30
+                      description: Lookback window used to compute utilization averages.
+                    include_reserved_instances:
+                      type: boolean
+                      default: true
+                    include_savings_plans:
+                      type: boolean
+                      default: true
+                    min_confidence_threshold:
+                      type: number
+                      format: double
+                      minimum: 0.0
+                      maximum: 1.0
+                      default: 0.7
+                      description: >
+                        Recommendations with confidence below this value
+                        will not be persisted.
+      responses:
+        "202":
+          description: Optimization job accepted.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncJob'
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+  /optimize/{job_id}:
+    get:
+      operationId: getOptimizationJob
+      summary: Poll optimization job status
+      tags: [Optimization]
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current job status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncJob'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "429":
+          $ref: '#/components/responses/RateLimited'
+        "500":
+          $ref: '#/components/responses/InternalError'
+
+tags:
+  - name: Resources
+    description: Cloud resource discovery and inventory.
+  - name: Usage
+    description: Time-series utilization metrics per resource.
+  - name: Recommendations
+    description: Cost optimization recommendations (resize, terminate, schedule, RI/SP).
+  - name: Forecasts
+    description: Predictive cost forecasts with confidence intervals.
+  - name: Optimization
+    description: On-demand optimization analysis jobs.
